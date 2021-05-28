@@ -1,0 +1,405 @@
+---
+title: "Kira_Plastinina"
+author: "Harrieth Rotich"
+date: "5/27/2021"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Kira Plastinina Analysis
+
+### Problem Definition
+
+#### Questions
+1. Perform clustering stating insights drawn from your analysis and visualizations.
+2. Upon implementation, provide comparisons between the approaches learned this week i.e. K-Means clustering vs Hierarchical clustering highlighting the strengths and limitations of each approach in the context of your analysis.
+
+#### Context
+
+Kira Plastinina is a Russian brand that is sold through a defunct chain of retail stores in Russia, Ukraine, Kazakhstan, Belarus, China, Philippines, and Armenia. The brand’s Sales and Marketing team would like to understand their customer’s behavior from data that they have collected over the past year. More specifically, they would like to learn the characteristics of customer groups.
+
+#### Experimental Design Taken
+
+1. Problem Definition
+2. Data Sourcing
+3. Check the Data
+4. Perform Data Cleaning
+5. Perform Exploratory Data Analysis  (Univariate, Bivariate & Multivariate)
+6. Implement the Solution
+7. Challenge the Solution
+8. Follow up Questions
+
+### Data Sourcing 
+
+```{r}
+# loading necessary dependencies. 
+library(data.table)
+library(tidyverse)
+library(dplyr)
+library(corrplot)
+library(ggplot2)
+library(dbscan)
+library(factoextra)
+library(purrr)
+
+
+```
+
+```{r}
+kira <- fread("http://bit.ly/EcommerceCustomersDataset")
+
+```
+### Checking the data
+
+```{r}
+# Preview of the data
+head(kira) 
+
+```
+```{r}
+# Basic structure of the data
+str(kira) 
+
+```
+### Data Cleaning
+
+```{r}
+# Checking for duplicates in the data.
+length(which(duplicated(kira)))
+
+```
+```{r}
+# Removing duplicates 
+kira <- kira[!duplicated(kira), ]
+
+```
+
+```{r}
+# Checking for null values.
+length(which(is.na(kira)))
+
+```
+```{r}
+# Null values per column
+
+colSums(is.na(kira))
+
+```
+Missing values are the same number for 8 different columns, this could mean that they might be the same rows. Hence the omission.
+
+
+```{r}
+# Omitting null values
+kira <- na.omit(kira)
+
+```
+
+```{r}
+# Outlier test
+z <- kira[, c(1 ,2, 3, 4, 5, 6, 7, 8, 9, 10)]
+boxplot(z, main="Outliers")
+```
+
+The columns with anything duration have outliers, the one having the most being 'ProductRelated_Duration'
+
+
+```{r}
+
+# Capping 
+# ProductRelated_Duration column
+x <- kira$ProductRelated_Duration
+qnt <- quantile(x, probs=c(.25, .75), na.rm = T)
+caps <- quantile(x, probs=c(.05, .95), na.rm = T)
+H <- 1.5 * IQR(x, na.rm = T)
+x[x < (qnt[1] - H)] <- caps[1]
+x[x > (qnt[2] + H)] <- caps[2] 
+
+
+# Informational_Duration
+w <- kira$Informational_Duration
+qnt <- quantile(w, probs=c(.25, .75), na.rm = T)
+caps <- quantile(w, probs=c(.05, .95), na.rm = T)
+H <- 1.5 * IQR(w, na.rm = T)
+w[w < (qnt[1] - H)] <- caps[1]
+w[w > (qnt[2] + H)] <- caps[2]
+
+#Administrative_Duration
+v <- kira$Administrative_Duration
+qnt <- quantile(v, probs=c(.25, .75), na.rm = T)
+caps <- quantile(v, probs=c(.05, .95), na.rm = T)
+H <- 1.5 * IQR(v, na.rm = T)
+v[v < (qnt[1] - H)] <- caps[1]
+v[v > (qnt[2] + H)] <- caps[2]
+
+
+```
+
+
+```{r}
+# Translating the capped values to the column
+kira$ProductRelated_Duration <- x
+boxplot(kira$ProductRelated_Duration, main="Capped Outliers")
+
+```
+```{r}
+# Translating the capped values to the column
+kira$Informational_Duration <- w
+boxplot(kira$Informational_Duration, main="Capped Outliers")
+
+```
+
+
+
+```{r}
+# Translating the capped values to the column 
+kira$Administrative_Duration <- v
+boxplot(kira$Administrative_Duration, main="Capped Outliers")
+
+```
+The outliers have been appropriately dealt with.
+
+### Exploratory Data Analysis
+
+
+#### Univariate Analysis
+
+```{r}
+# Dataset Information
+
+summary(kira)
+
+```
+```{r}
+# Unique values in column Visitor Type
+unique(kira$VisitorType)
+
+```
+```{r}
+# Unique values in column OperatingSystems
+unique(kira$OperatingSystems)
+
+```
+
+
+```{r}
+# Unique values in column Browser
+unique(kira$Browser)
+
+```  
+
+
+```{r}
+# Unique values in column Traffic Type
+unique(kira$TrafficType)
+
+```
+```{r}
+# Unique values in column Special Day
+unique(kira$SpecialDay)
+
+```
+
+
+
+```{r}
+# Distribution of the visitors
+visitor <- kira$VisitorType
+vis <- table(visitor)
+barplot(vis, main = "Visitor Type Distribution", 
+        ylab = "Distribution")
+
+```
+```{r}
+# Distribution of the visitors
+month <- kira$Month
+mon <- table(month)
+barplot(mon, main = "Month Distribution", 
+        ylab = "Distribution")
+
+```
+
+
+```{r}
+# Distribution of the visitors
+Region <- kira$Region
+reg <- table(Region)
+barplot(reg, main = "Regions Distribution", 
+        ylab = "Distribution", xlab = "Regions")
+
+```
+
+
+```{r}
+# Distribution of the visitors
+revenue <- kira$Revenue
+rev <- table(revenue)
+barplot(rev, main = "Revenue Distribution", 
+        ylab = "Distribution")
+
+```
+```{r}
+count(kira, Revenue, sort = TRUE)
+
+```
+#### Bivariate Analysis
+
+```{r}
+# Getting correlation of the continuous variables
+res <- cor(kira %>% select(1:10))
+# Rounding off the correlations 
+round(res, 2) 
+
+``` 
+```{r}
+#Plotting a correlation matrix plot
+corrplot(res, type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45) 
+
+```
+```{r}
+# Plotting pair plots
+pairs(kira[,1:9], pch = 19, lower.panel = NULL, 
+      main="Pair Plots showing the relationships between variables") 
+
+```
+
+
+
+#### Multivariate Analysis
+
+```{r}
+# Grouping according to Revenue
+
+group <- NA
+group[kira$Revenue == TRUE] <- 1
+group[kira$Revenue == FALSE] <- 0
+
+```
+
+```{r}
+# Setting the x and y variables
+x <- kira$BounceRates
+y <- kira$ExitRates
+
+# Scatter plot
+plot(x, y, xlab = " A", ylab = "Time Spent on Site", col = c("red", "purple")[group],
+     main="Scatter Plot showing age in relation to time spent on Site")
+
+```
+
+### Implement the Solution
+
+#### K-Means Clustering
+
+```{r}
+# Transforming month into factors.
+kira[["Month"]] = factor(kira[["Month"]])
+kira[["VisitorType"]] = factor(kira[["VisitorType"]])
+kira[["Weekend"]] = factor(kira[["Weekend"]])
+
+```
+
+
+```{r}
+# Removing the label
+kira_p <- kira[, -18]
+
+```
+
+```{r}
+# Normalization
+normalize <- function(x){
+  return ((x-min(x)) / (max(x)-min(x)))
+}
+
+kira_p <- normalize(kira_p[, c(-11, -16, -17)])
+
+```
+
+```{r}
+# Testing the optimal number of clusters to be used.
+# Determining Optimal clusters (k) Using Elbow method
+fviz_nbclust(x = kira_p, FUNcluster= kmeans, method = 'wss' ) 
+
+```
+The optimal number of clusters to be used are 3 but the labels are divided into two, hence the decision to use 2 as k
+
+
+```{r}
+# Fitting model with k as 2 
+kms<- kmeans(kira_p, 2) 
+ 
+```
+
+```{r}
+# Number of records per cluster
+kms$size 
+
+```
+The k-means algorithm has performed pretty well. It has overestimated the number of True Revenue and reduced the number of false's in Revenue. It has misclassified the values by 2%
+
+
+```{r}
+# Cluster centre data point
+kms$centers 
+
+```
+
+#### Hierarchical Clustering
+
+
+```{r}
+# Getting Euclidean distances between points
+d <- dist(kira_p, method = "euclidean")
+
+```
+
+
+```{r}
+# Hierarchical Clustering
+h.clust <- hclust(d, method = "ward.D2" )
+
+```
+
+```{r}
+# Plotting the obtained dendrograms
+plot(h.clust, cex = 0.6, hang = -1) 
+
+```
+```{r}
+# Cut tree into 2 groups
+sub_grp <- cutree(h.clust, k = 2)
+
+# Number of members in each cluster
+table(sub_grp)
+```
+The Hclust Algorithm has performed very poorly. It has an error of 21%
+
+
+
+### Conclusion
+
+K- means clustering performs better than Hierarchical Clustering for this particular problem. 
+
+Hierarchical clustering was easier to implement than K-means was. Number of clusters did not need to be specified.
+
+K-means was able to scale well with the data provided. From the dendrogram, hierarchical clustering was done but due to the many variables, the bottom was too tiny to be seen.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
